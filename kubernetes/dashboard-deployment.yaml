@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: predictive-maintenance-dashboard
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: predictive-maintenance-dashboard
+
+  template:
+    metadata:
+      labels:
+        app: predictive-maintenance-dashboard
+
+    spec:
+      containers:
+
+        - name: dashboard
+
+          image: predictive-maintenance-dashboard:1.0
+
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - containerPort: 8501
+
+          env:
+            - name: API_URL
+              value: "http://predictive-maintenance-api:8000"
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
