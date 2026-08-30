@@ -1,4 +1,4 @@
-name: Predictive Maintenance CI
+name: Predictive Maintenance CI/CD
 
 on:
   push:
@@ -10,7 +10,22 @@ on:
       - main
 
 
+env:
+  PROJECT_ID: pm-mlops-gcp-2026
+  REGION: asia-south1
+  REPOSITORY: predictive-maintenance
+
+  API_IMAGE: predictive-maintenance-api
+  DASHBOARD_IMAGE: predictive-maintenance-dashboard
+
+  GKE_CLUSTER: predictive-maintenance
+
+
 jobs:
+
+  # ============================================================
+  # CI - TEST
+  # ============================================================
 
   test:
 
@@ -43,6 +58,10 @@ jobs:
           python -m pytest -v
 
 
+  # ============================================================
+  # CI - BUILD DOCKER IMAGES
+  # ============================================================
+
   docker:
 
     name: Build Docker Images
@@ -60,7 +79,7 @@ jobs:
       - name: Build API image
         run: |
           docker build \
-            -t predictive-maintenance-api:${{ github.sha }} \
+            -t $API_IMAGE:${{ github.sha }} \
             .
 
 
@@ -68,5 +87,167 @@ jobs:
         run: |
           docker build \
             -f Dockerfile.dashboard \
-            -t predictive-maintenance-dashboard:${{ github.sha }} \
+            -t $DASHBOARD_IMAGE:${{ github.sha }} \
             .
+
+
+  # ============================================================
+  # CD - PUSH IMAGES + DEPLOY TO GKE
+  # ============================================================
+
+  deploy:
+
+    name: Deploy to GKE
+
+    needs:
+      - test
+      - docker
+
+    # Only deploy when code reaches main.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # ----------------------------------------------------------
+      # Authenticate to Google Cloud
+      # ----------------------------------------------------------
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+
+      # ----------------------------------------------------------
+      # Setup Google Cloud CLI
+      # ----------------------------------------------------------
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+
+      # ----------------------------------------------------------
+      # Configure Docker for Artifact Registry
+      # ----------------------------------------------------------
+
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
+
+
+      # ----------------------------------------------------------
+      # Build API image
+      # ----------------------------------------------------------
+
+      - name: Build API image
+        run: |
+          docker build \
+            -t $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$API_IMAGE:${{ github.sha }} \
+            .
+
+
+      # ----------------------------------------------------------
+      # Build Dashboard image
+      # ----------------------------------------------------------
+
+      - name: Build Dashboard image
+        run: |
+          docker build \
+            -f Dockerfile.dashboard \
+            -t $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$DASHBOARD_IMAGE:${{ github.sha }} \
+            .
+
+
+      # ----------------------------------------------------------
+      # Push API image
+      # ----------------------------------------------------------
+
+      - name: Push API image
+        run: |
+          docker push \
+            $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$API_IMAGE:${{ github.sha }}
+
+
+      # ----------------------------------------------------------
+      # Push Dashboard image
+      # ----------------------------------------------------------
+
+      - name: Push Dashboard image
+        run: |
+          docker push \
+            $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$DASHBOARD_IMAGE:${{ github.sha }}
+
+
+      # ----------------------------------------------------------
+      # Get GKE credentials
+      # ----------------------------------------------------------
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.REGION }}
+
+
+      # ----------------------------------------------------------
+      # Update API image
+      # ----------------------------------------------------------
+
+      - name: Deploy API
+        run: |
+          kubectl set image deployment/predictive-maintenance-api \
+            api=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$API_IMAGE:${{ github.sha }}
+
+
+      # ----------------------------------------------------------
+      # Update Dashboard image
+      # ----------------------------------------------------------
+
+      - name: Deploy Dashboard
+        run: |
+          kubectl set image deployment/predictive-maintenance-dashboard \
+            dashboard=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$DASHBOARD_IMAGE:${{ github.sha }}
+
+
+      # ----------------------------------------------------------
+      # Wait for API rollout
+      # ----------------------------------------------------------
+
+      - name: Wait for API rollout
+        run: |
+          kubectl rollout status \
+            deployment/predictive-maintenance-api \
+            --timeout=10m
+
+
+      # ----------------------------------------------------------
+      # Wait for Dashboard rollout
+      # ----------------------------------------------------------
+
+      - name: Wait for Dashboard rollout
+        run: |
+          kubectl rollout status \
+            deployment/predictive-maintenance-dashboard \
+            --timeout=10m
+
+
+      # ----------------------------------------------------------
+      # Verify Kubernetes deployment
+      # ----------------------------------------------------------
+
+      - name: Verify deployment
+        run: |
+          kubectl get deployments
+          kubectl get pods
+          kubectl get services
