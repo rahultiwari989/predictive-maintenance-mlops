@@ -34,7 +34,6 @@ The project demonstrates how a machine-learning model can move from local develo
 * [Troubleshooting](#troubleshooting)
 * [MLOps Design Decisions](#mlops-design-decisions)
 * [Production Improvements](#production-improvements)
-* [Interview Explanation](#interview-explanation)
 
 ---
 
