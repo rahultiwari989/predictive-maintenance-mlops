@@ -16,10 +16,10 @@ def approve_candidate(candidate: dict, champion: dict, max_relative_regression: 
         return False, reasons
     if candidate_rmse > champion_rmse * (1 + max_relative_regression):
         reasons.append(f"candidate RMSE {candidate_rmse:.4f} exceeds allowed limit {champion_rmse * (1 + max_relative_regression):.4f}")
-    if candidate.get("schema_valid") is False:
-        reasons.append("candidate failed schema validation")
-    if candidate.get("smoke_test_passed") is False:
-        reasons.append("candidate failed smoke test")
+    if candidate.get("schema_valid") is not True:
+        reasons.append("candidate schema validation is missing or failed")
+    if candidate.get("smoke_test_passed") is not True:
+        reasons.append("candidate smoke-test evidence is missing or failed")
     return not reasons, reasons or ["candidate passed configured promotion checks"]
 
 
